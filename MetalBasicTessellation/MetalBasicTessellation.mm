@@ -28,7 +28,6 @@ class TessellationPipeline {
         id<MTLRenderPipelineState> _renderPipelineQuad;
         
         id<MTLBuffer> _tessellationFactorsBuffer;
-        id<MTLBuffer> _controlPointsBufferTriangle;
         id<MTLBuffer> _controlPointsBufferQuad;
         
         id <MTKViewDelegate> delegate;
