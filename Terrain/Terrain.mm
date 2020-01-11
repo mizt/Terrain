@@ -143,17 +143,7 @@ class TessellationPipeline {
 
             // In OS X, the storage mode can be shared or managed, but managed may yield better performance
             controlPointsBufferOptions = MTLResourceStorageModeManaged;
-            /*
-            static const float controlPointPositionsQuad[] = {
-                -1.0,  1.0, 0.0, 1.0,   // upper-left
-                 1.0,  1.0, 0.0, 1.0,   // upper-right
-                 1.0, -1.0, 0.0, 1.0,   // lower-right
-                -1.0, -1.0, 0.0, 1.0,   // lower-left
-            };
             
-            this->_controlPointsBufferQuad = [this->_device newBufferWithBytes:controlPointPositionsQuad length:sizeof(controlPointPositionsQuad) options:controlPointsBufferOptions];
-            this->_controlPointsBufferQuad.label = @"Control Points Quad";
-            */
             // More sophisticated tessellation passes might have additional buffers for per-patch user data
         }
         
