@@ -55,7 +55,7 @@ class TessellationPipeline {
             
             // Load the default library
             NSError *error = nil;
-            this->_library = [this->_device newLibraryWithFile:[NSString stringWithFormat:@"%@/%@",[[NSBundle mainBundle] bundlePath],@"TessellationFunctions.metallib"] error:&error];
+            this->_library = [this->_device newLibraryWithFile:[NSString stringWithFormat:@"%@/%@",[[NSBundle mainBundle] bundlePath],@"Terrain.metallib"] error:&error];
             
             if(error!=nil) {
                 return false;
