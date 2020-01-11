@@ -34,8 +34,6 @@ class TessellationPipeline {
         id <MTKViewDelegate> delegate;
         
         bool _wireframe;
-        float _edgeFactor;
-        float _insideFactor;
         
         bool didSetupMetal() {
           
