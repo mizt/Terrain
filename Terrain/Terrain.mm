@@ -2,6 +2,7 @@
 #import <MetalKit/MetalKit.h>
 #import <objc/runtime.h>
 
+#import "Cam.h"
 #import "Config.h"
 
 void addMethod(Class cls,NSString *method,id block,const char *type,bool isClassMethod=false) {
@@ -32,9 +33,49 @@ class TessellationPipeline {
         id<MTLBuffer> _indicesBuffer;
         id<MTLBuffer> _tessellationFactorsBuffer;
         
-        id <MTKViewDelegate> delegate;
+        id<MTKViewDelegate> _delegate;
+        
+        id<MTLBuffer> _viewProjectionMatrix;
+        id<MTLTexture> _terrainHeight;
+        
+        int _mousedown = 0;
+
+        Cam *_cam = new Cam(
+            simd::float3{0,0,2},
+            simd::float3{0,0,0}
+        );
         
         bool _wireframe;
+        
+        id<MTLTexture> CreateTextureWithDevice(id<MTLDevice> device, NSString *filePath, bool sRGB = false, bool generateMips = false, MTLResourceOptions storageMode = MTLStorageModePrivate) {
+                
+                static MTKTextureLoader* sLoader = [[MTKTextureLoader alloc] initWithDevice:device];
+                
+                NSDictionary *options = @{
+                    MTKTextureLoaderOptionSRGB:[NSNumber numberWithBool:sRGB],
+                    MTKTextureLoaderOptionGenerateMipmaps:[NSNumber numberWithBool:generateMips],
+                    MTKTextureLoaderOptionTextureUsage:[NSNumber numberWithInteger:MTLTextureUsagePixelFormatView|MTLTextureUsageShaderRead],
+                    MTKTextureLoaderOptionTextureStorageMode:[NSNumber numberWithUnsignedLong:storageMode]
+                };
+                
+                NSURL *url = ([[filePath substringToIndex:1] isEqualToString:@"/"])?
+                        [NSURL fileURLWithPath:filePath]:
+                        [[NSBundle mainBundle] URLForResource:filePath withExtension:@""];
+
+                NSError *error = nil;
+                id <MTLTexture> texture = [sLoader newTextureWithContentsOfURL:url options:options error:&error];
+                
+                if(texture) {
+                        texture.label = filePath;
+                }
+                else {
+                        NSString *reason = [NSString stringWithFormat:@"Error loading texture (%@) : %@", filePath, error];
+                        NSException *exc = [NSException exceptionWithName: @"Texture loading exception" reason: reason userInfo: nil];
+                        @throw exc;
+                }
+
+                return texture;
+        }
         
         bool didSetupMetal() {
           
@@ -64,18 +105,21 @@ class TessellationPipeline {
             return true;
         }
 
-
         bool didSetupComputePipelines() {
             
             NSError* computePipelineError;
             
             // Create compute pipeline for quad-based tessellation
-            id <MTLFunction> kernelFunctionQuad = [this->_library newFunctionWithName:@"tessellation_kernel_quad"];
+            id <MTLFunction> kernelFunctionQuad = [this->_library newFunctionWithName:@"tessellation_kernel"];
             this->_computePipelineQuad = [this->_device newComputePipelineStateWithFunction:kernelFunctionQuad error:&computePipelineError];
             if(!this->_computePipelineQuad) {
                 NSLog(@"Failed to create compute pipeline (QUAD), error: %@", computePipelineError);
                 return false;
             }
+            
+            [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskScrollWheel handler:^(NSEvent *event) {
+                this->_cam->mouseWheel([event deltaX],[event deltaY]);
+            }];
             
             return true;
         }
@@ -84,21 +128,9 @@ class TessellationPipeline {
             
             NSError *renderPipelineError = nil;
             
-            // Create a reusable vertex descriptor for the control point data
-            // This describes the inputs to the post-tessellation vertex function, declared with the 'stage_in' qualifier
-            MTLVertexDescriptor* vertexDescriptor = [MTLVertexDescriptor vertexDescriptor];
-            vertexDescriptor.attributes[0].format = MTLVertexFormatFloat4;
-            vertexDescriptor.attributes[0].offset = 0;
-            vertexDescriptor.attributes[0].bufferIndex = 0;
-            vertexDescriptor.layouts[0].stepFunction = MTLVertexStepFunctionPerPatchControlPoint;
-            vertexDescriptor.layouts[0].stepRate = 1;
-            vertexDescriptor.layouts[0].stride = 4.0*sizeof(float);
-            
             // Create a reusable render pipeline descriptor
             MTLRenderPipelineDescriptor *renderPipelineDescriptor = [MTLRenderPipelineDescriptor new];
             
-            // Configure common render properties
-            renderPipelineDescriptor.vertexDescriptor = vertexDescriptor;
             renderPipelineDescriptor.sampleCount = view.sampleCount;
             renderPipelineDescriptor.colorAttachments[0].pixelFormat = view.colorPixelFormat;
             renderPipelineDescriptor.fragmentFunction = [_library newFunctionWithName:@"tessellation_fragment"];
@@ -135,6 +167,9 @@ class TessellationPipeline {
             // This is a private buffer whose contents are later populated by the GPU (compute kernel)
             this->_tessellationFactorsBuffer = [this->_device newBufferWithLength:sizeof(MTLQuadTessellationFactorsHalf)*TERRAIN_PATCHES_X*TERRAIN_PATCHES_Y options:MTLResourceStorageModePrivate];
             
+            this->_viewProjectionMatrix = [this->_device newBufferWithLength:sizeof(float)*4*4 options:MTLResourceOptionCPUCacheModeDefault];               
+            this->_terrainHeight = CreateTextureWithDevice(this->_device,@"./test.png");
+            
             this->_tessellationFactorsBuffer.label = @"Tessellation Factors";
             
             // Allocate memory for the control points buffers
@@ -166,7 +201,7 @@ class TessellationPipeline {
             [computeCommandEncoder setBuffer:this->_indicesBuffer offset:0 atIndex:1];
             
             // Dispatch threadgroups
-            [computeCommandEncoder dispatchThreadgroups:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(TERRAIN_PATCHES_X,TERRAIN_PATCHES_Y,1)];
+            [computeCommandEncoder dispatchThreadgroups:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(16,16,1)];
             
             // All compute commands have been encoded
             [computeCommandEncoder popDebugGroup];
@@ -195,6 +230,37 @@ class TessellationPipeline {
                     [renderCommandEncoder setTriangleFillMode:MTLTriangleFillModeLines];
                 }
                 
+                NSPoint mouseLoc = [NSEvent mouseLocation];
+                int mousedown = (int)[NSEvent pressedMouseButtons];
+
+                if(this->_mousedown!=mousedown) {
+                    this->_mousedown = mousedown;
+                    if(mousedown) {
+                        this->_cam->mouseDown(mousedown,mouseLoc.x,mouseLoc.y);
+                    }
+                    else {
+                        this->_cam->mouseUp();
+                    }
+                }
+                else {
+                    if(mousedown) {
+                        this->_cam->mouseMove(mouseLoc.x,mouseLoc.y);
+                    }
+                }
+                
+                this->_cam->setScreen(0,0,W,H);    
+                this->_cam->update();
+                
+                float *viewProjectionMatrix = (float *)[this->_viewProjectionMatrix contents];
+                for(int i=0; i<4; i++) {
+                    for(int j=0; j<4; j++) {
+                        viewProjectionMatrix[i*4+j] = this->_cam->matrix.columns[i][j];
+                    }
+                }
+                
+                [renderCommandEncoder setVertexBuffer:this->_viewProjectionMatrix offset:0 atIndex:0];
+                [renderCommandEncoder setVertexTexture:this->_terrainHeight atIndex:0];
+                    
                 // Encode tessellation-specific commands
                 [renderCommandEncoder setTessellationFactorBuffer:this->_tessellationFactorsBuffer offset:0 instanceStride:0];
                 [renderCommandEncoder drawPatches:4 patchStart:0 patchCount:TERRAIN_PATCHES_X*TERRAIN_PATCHES_Y patchIndexBuffer:this->_indicesBuffer patchIndexBufferOffset:0 instanceCount:1 baseInstance:0];
@@ -220,8 +286,9 @@ class TessellationPipeline {
             if(this->didSetupMetal()) {
                 
                 // Assign device and delegate to MTKView
-                view.device = this->_device;
+                view.device = this->_device;                
                 
+                // id<MTKViewDelegate>
                 if(objc_getClass("Delegate")==nil) { objc_registerClassPair(objc_allocateClassPair(objc_getClass("NSObject"),"Delegate",0)); }
                 Class Delegate = objc_getClass("Delegate");
                    
@@ -230,7 +297,7 @@ class TessellationPipeline {
                 },"v@:@");
                                 
                 addMethod(Delegate,@"drawInMTKView:",^(id me,MTKView *view) {
-                    NSLog(@"drawInMTKView:"); 
+                   // NSLog(@"drawInMTKView:"); 
                     @autoreleasepool {
                         // Create a new command buffer for each tessellation pass
                         id <MTLCommandBuffer> commandBuffer = [_commandQueue commandBuffer];
@@ -244,8 +311,8 @@ class TessellationPipeline {
                     }
                 },"v@:@");
                         
-                this->delegate = [[Delegate alloc] init];                
-                view.delegate = this->delegate;
+                this->_delegate = [[Delegate alloc] init];                
+                view.delegate = this->_delegate;
                 
                 // Setup compute pipelines
                 if(this->didSetupComputePipelines()) {
@@ -270,17 +337,20 @@ class App {
         NSWindow *win;
         MTKView *view;
         
+        dispatch_source_t timer;
+
         TessellationPipeline *tessellationPipeline;
     
     public:
     
         App() {
             
-            CGRect rect = CGRectMake(0,0,1280,720);
+            CGRect rect = CGRectMake(0,0,W,H);
             
-            this->win = [[NSWindow alloc] initWithContentRect:rect styleMask:1 backing:NSBackingStoreBuffered defer:NO];
-            [this->win center];
+            this->win = [[NSWindow alloc] initWithContentRect:rect styleMask:0 backing:NSBackingStoreBuffered defer:NO];
+            //[this->win center];
             [this->win makeKeyAndOrderFront:nil];
+            [this->win setLevel:kCGDesktopWindowLevel];
             
             this->view = [[MTKView alloc] initWithFrame:rect];
 
@@ -288,13 +358,26 @@ class App {
             
             this->view.paused = YES;
             this->view.enableSetNeedsDisplay = YES;
-            this->view.sampleCount = 1;
+            this->view.sampleCount = 4;
                         
             this->tessellationPipeline = new TessellationPipeline(this->view);
-            //[this->view draw];
+            
+            this->timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER,0,0,dispatch_queue_create("ENTER_FRAME",0));
+            dispatch_source_set_timer(this->timer,dispatch_time(0,0),(1.0/30)*1000000000,0);
+            dispatch_source_set_event_handler(this->timer,^{
+                [this->view draw];
+            });
+            if(this->timer) dispatch_resume(this->timer);        
+        
         }
     
         ~App() {
+            
+            if(this->timer){
+                dispatch_source_cancel(this->timer);
+                this->timer = nullptr;
+            }
+            
             [this->win setReleasedWhenClosed:NO];
             [this->win close];
             this->win = nil;

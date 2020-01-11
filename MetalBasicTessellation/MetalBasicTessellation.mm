@@ -68,7 +68,7 @@ class TessellationPipeline {
             NSError* computePipelineError;
             
             // Create compute pipeline for quad-based tessellation
-            id <MTLFunction> kernelFunctionQuad = [this->_library newFunctionWithName:@"tessellation_kernel_quad"];
+            id <MTLFunction> kernelFunctionQuad = [this->_library newFunctionWithName:@"tessellation_kernel"];
             this->_computePipelineQuad = [this->_device newComputePipelineStateWithFunction:kernelFunctionQuad error:&computePipelineError];
             if(!this->_computePipelineQuad) {
                 NSLog(@"Failed to create compute pipeline (QUAD), error: %@", computePipelineError);
@@ -113,7 +113,7 @@ class TessellationPipeline {
             renderPipelineDescriptor.maxTessellationFactor = 64;
             
             // Create render pipeline for quad-based tessellation
-            renderPipelineDescriptor.vertexFunction = [this->_library newFunctionWithName:@"tessellation_vertex_quad"];
+            renderPipelineDescriptor.vertexFunction = [this->_library newFunctionWithName:@"tessellation_vertex"];
             this->_renderPipelineQuad = [this->_device newRenderPipelineStateWithDescriptor:renderPipelineDescriptor error:&renderPipelineError];
             if (!_renderPipelineQuad) {
                 NSLog(@"Failed to create render pipeline state (QUAD), error %@", renderPipelineError);

@@ -22,7 +22,7 @@ struct FunctionOutIn {
 #pragma mark Compute Kernels
 
 // Quad compute kernel
-kernel void tessellation_kernel_quad(device MTLQuadTessellationFactorsHalf *factors[[buffer(0)]],uint pid[[thread_position_in_grid]]) {
+kernel void tessellation_kernel(device MTLQuadTessellationFactorsHalf *factors[[buffer(0)]],uint pid[[thread_position_in_grid]]) {
   
     // Simple passthrough operation
     // More sophisticated compute kernels might determine the tessellation factors based on the state of the scene (e.g. camera distance)
@@ -41,7 +41,7 @@ kernel void tessellation_kernel_quad(device MTLQuadTessellationFactorsHalf *fact
 #pragma mark Post-Tessellation Vertex Functions
 
 // Quad post-tessellation vertex function
-[[patch(quad, 4)]] vertex FunctionOutIn tessellation_vertex_quad(PatchIn patchIn[[stage_in]], float2 patch_coord[[position_in_patch]]) {
+[[patch(quad, 4)]] vertex FunctionOutIn tessellation_vertex(PatchIn patchIn[[stage_in]], float2 patch_coord[[position_in_patch]]) {
   
     // Parameter coordinates
     float u = patch_coord.x;
