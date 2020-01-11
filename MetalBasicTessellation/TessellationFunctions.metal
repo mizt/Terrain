@@ -22,10 +22,14 @@ struct FunctionOutIn {
 #pragma mark Compute Kernels
 
 // Quad compute kernel
-kernel void tessellation_kernel_quad(constant float &edge_factor[[buffer(0)]], constant float &inside_factor[[buffer(1)]],device MTLQuadTessellationFactorsHalf *factors[[buffer(2)]],uint pid[[thread_position_in_grid]]) {
+kernel void tessellation_kernel_quad(device MTLQuadTessellationFactorsHalf *factors[[buffer(0)]],uint pid[[thread_position_in_grid]]) {
   
     // Simple passthrough operation
     // More sophisticated compute kernels might determine the tessellation factors based on the state of the scene (e.g. camera distance)
+    
+    uint edge_factor = 4;
+    uint inside_factor = 4;
+    
     factors[pid].edgeTessellationFactor[0] = edge_factor;
     factors[pid].edgeTessellationFactor[1] = edge_factor;
     factors[pid].edgeTessellationFactor[2] = edge_factor;

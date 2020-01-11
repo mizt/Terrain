@@ -165,12 +165,8 @@ class TessellationPipeline {
             // Set the correct compute pipeline
             [computeCommandEncoder setComputePipelineState:this->_computePipelineQuad];
             
-            // Bind the user-selected edge and inside factor values to the compute kernel
-            [computeCommandEncoder setBytes:&this->_edgeFactor length:sizeof(float) atIndex:0];
-            [computeCommandEncoder setBytes:&this->_insideFactor length:sizeof(float) atIndex:1];
-            
             // Bind the tessellation factors buffer to the compute kernel
-            [computeCommandEncoder setBuffer:this->_tessellationFactorsBuffer offset:0 atIndex:2];
+            [computeCommandEncoder setBuffer:this->_tessellationFactorsBuffer offset:0 atIndex:0];
             
             // Dispatch threadgroups
             [computeCommandEncoder dispatchThreadgroups:MTLSizeMake(1,1,1) threadsPerThreadgroup:MTLSizeMake(1,1,1)];
@@ -222,9 +218,7 @@ class TessellationPipeline {
         TessellationPipeline(MTKView *view) {
             
             // Initialize properties
-            this->_wireframe = YES;
-            this->_edgeFactor = 16.0;
-            this->_insideFactor = 16.0;
+            this->_wireframe = true;
             
             // Setup Metal
             if(this->didSetupMetal()) {
